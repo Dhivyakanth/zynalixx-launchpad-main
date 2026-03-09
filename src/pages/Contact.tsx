@@ -102,7 +102,7 @@ const Contact = () => {
     
     try {
       const { submitContactForm } = await import("@/lib/api");
-      await submitContactForm(data);
+      await submitContactForm(data as { name: string; email: string; phone: string; message: string });
       
       setIsSuccess(true);
       toast({
