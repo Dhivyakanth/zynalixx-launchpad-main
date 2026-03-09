@@ -1,6 +1,6 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
-const { submitContact } = require("../controllers/contactController");
+const { submitContact, submitBookCall } = require("../controllers/contactController");
 
 const router = express.Router();
 
@@ -14,5 +14,6 @@ const contactLimiter = rateLimit({
 });
 
 router.post("/contacts", contactLimiter, submitContact);
+router.post("/book-calls", contactLimiter, submitBookCall);
 
 module.exports = router;

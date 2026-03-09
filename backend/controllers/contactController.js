@@ -1,6 +1,7 @@
 const validator = require("validator");
 const Contact = require("../models/Contact");
-const { sendContactEmail } = require("../utils/emailService");
+const BookCall = require("../models/BookCall");
+const { sendContactEmail, sendBookCallEmail } = require("../utils/emailService");
 
 exports.submitContact = async (req, res, next) => {
   try {
@@ -42,6 +43,81 @@ exports.submitContact = async (req, res, next) => {
     // ---------- Send email asynchronously (non-blocking) ----------
     sendContactEmail(sanitized).catch((err) => {
       console.error("[ASYNC-EMAIL] Failed:", err.message);
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.submitBookCall = async (req, res, next) => {
+  try {
+    const {
+      name,
+      company,
+      email,
+      phone,
+      projectType,
+      budget,
+      timeline,
+      description,
+    } = req.body;
+
+    // ---------- Validation ----------
+    const errors = [];
+    if (!name || typeof name !== "string" || !name.trim()) errors.push("Name is required");
+    else if (name.trim().length > 100) errors.push("Name must be under 100 characters");
+
+    if (!email || !validator.isEmail(String(email))) errors.push("Valid email is required");
+
+    if (!phone || !validator.isMobilePhone(String(phone), "any", { strictMode: false })) {
+      errors.push("Valid phone number is required");
+    }
+
+    if (!projectType || typeof projectType !== "string" || !projectType.trim()) {
+      errors.push("Project type is required");
+    }
+
+    if (!budget || typeof budget !== "string" || !budget.trim()) {
+      errors.push("Budget is required");
+    }
+
+    if (!timeline || typeof timeline !== "string" || !timeline.trim()) {
+      errors.push("Timeline is required");
+    }
+
+    if (!description || typeof description !== "string" || !description.trim()) {
+      errors.push("Description is required");
+    } else if (description.trim().length > 3000) {
+      errors.push("Description must be under 3000 characters");
+    }
+
+    if (errors.length) return res.status(400).json({ success: false, errors });
+
+    // ---------- Sanitize ----------
+    const sanitized = {
+      name: validator.escape(name.trim()),
+      company: company ? validator.escape(String(company).trim()) : null,
+      email: validator.normalizeEmail(email.trim()),
+      phone: validator.escape(phone.trim()),
+      projectType: validator.escape(projectType.trim()),
+      budget: validator.escape(budget.trim()),
+      timeline: validator.escape(timeline.trim()),
+      description: validator.escape(description.trim()),
+    };
+
+    // ---------- Save to Firestore ----------
+    const saved = await BookCall.create(sanitized);
+
+    // ---------- Respond immediately ----------
+    res.status(201).json({
+      success: true,
+      message: "Book call request saved successfully",
+      data: { id: saved.id, created_at: saved.created_at },
+    });
+
+    // ---------- Send email asynchronously (non-blocking) ----------
+    sendBookCallEmail(sanitized).catch((err) => {
+      console.error("[ASYNC-BOOK-CALL-EMAIL] Failed:", err.message);
     });
   } catch (err) {
     next(err);

@@ -18,6 +18,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "@/hooks/use-toast";
+import { submitBookCallForm } from "@/lib/api";
 import PageTransition from "@/components/PageTransition";
 import SectionHeading from "@/components/SectionHeading";
 import { Input } from "@/components/ui/input";
@@ -102,19 +103,25 @@ const BookCall = () => {
 
   const onSubmit = async (data: BookCallFormData) => {
     setIsSubmitting(true);
-    
-    // Simulate form submission - will be replaced with actual API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    console.log("Book call form submitted:", data);
-    
-    setIsSubmitting(false);
-    setIsSuccess(true);
-    
-    toast({
-      title: "Request Submitted!",
-      description: "Our team will contact you within 24 hours to schedule a call.",
-    });
+
+    try {
+      await submitBookCallForm(data);
+
+      setIsSuccess(true);
+      toast({
+        title: "Request Submitted!",
+        description: "Our team will contact you within 24 hours to schedule a call.",
+      });
+      form.reset();
+    } catch (err: any) {
+      toast({
+        title: "Failed to submit",
+        description: err.message || "Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
