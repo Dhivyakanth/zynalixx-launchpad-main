@@ -7,6 +7,16 @@ const contactRoutes = require("./routes/contactRoutes");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+function normalizeOrigin(value) {
+  return String(value || "").trim().replace(/\/$/, "");
+}
+
+function corsError(origin) {
+  const err = new Error(`Not allowed by CORS: ${origin || "unknown-origin"}`);
+  err.status = 403;
+  return err;
+}
+
 // ------- Security middleware -------
 app.use(helmet());
 
@@ -14,15 +24,23 @@ app.use(helmet());
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
-  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()) : []),
-];
+  "https://zynalixx-a4c84.web.app",
+  "https://zynalixx-a4c84.firebaseapp.com",
+  ...(process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+    : []),
+]
+  .map(normalizeOrigin)
+  .filter(Boolean);
+
+console.log("[CORS] Allowed origins:", allowedOrigins.join(", "));
 
 app.use(
   cors({
     origin(origin, cb) {
       // allow server-to-server / curl (no origin)
-      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-      cb(new Error("Not allowed by CORS"));
+      if (!origin || allowedOrigins.includes(normalizeOrigin(origin))) return cb(null, true);
+      cb(corsError(origin));
     },
     methods: ["GET", "POST"],
     credentials: true,
