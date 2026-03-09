@@ -100,22 +100,26 @@ const Contact = () => {
   const onSubmit = async (data: ContactFormData) => {
     setIsSubmitting(true);
     
-    // Simulate form submission - will be replaced with actual API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    console.log("Contact form submitted:", data);
-    
-    setIsSubmitting(false);
-    setIsSuccess(true);
-    
-    toast({
-      title: "Message Sent!",
-      description: "We'll get back to you within 24 hours.",
-    });
-    
-    form.reset();
-    
-    setTimeout(() => setIsSuccess(false), 3000);
+    try {
+      const { submitContactForm } = await import("@/lib/api");
+      await submitContactForm(data);
+      
+      setIsSuccess(true);
+      toast({
+        title: "Message Sent!",
+        description: "We'll get back to you within 24 hours.",
+      });
+      form.reset();
+      setTimeout(() => setIsSuccess(false), 3000);
+    } catch (err: any) {
+      toast({
+        title: "Failed to send",
+        description: err.message || "Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
