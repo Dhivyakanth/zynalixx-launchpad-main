@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
 import { Menu, X, ArrowRight } from "lucide-react";
-import logo from "@/assets/zynalixx-logo.jpeg";
 
 const navLinks = [
   { name: "Home", path: "/" },
@@ -53,23 +52,6 @@ const Navbar = () => {
         <div className="flex items-center justify-between h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3 group">
-            <motion.div
-              whileHover={{ scale: 1.08, rotate: [0, -5, 5, 0] }}
-              transition={{ duration: 0.4 }}
-              className="relative"
-            >
-              <img
-                src={logo}
-                alt="Zynalixx"
-                className="w-10 h-10 rounded-lg object-cover"
-              />
-              <motion.div
-                className="absolute inset-0 rounded-lg bg-primary/20"
-                initial={{ opacity: 0 }}
-                whileHover={{ opacity: 1 }}
-                transition={{ duration: 0.3 }}
-              />
-            </motion.div>
             <motion.span
               className="text-xl font-display font-bold text-foreground"
               whileHover={{ color: "hsl(var(--primary))" }}
