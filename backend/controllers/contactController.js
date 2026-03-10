@@ -3,6 +3,20 @@ const Contact = require("../models/Contact");
 const BookCall = require("../models/BookCall");
 const { sendContactEmail, sendBookCallEmail } = require("../utils/emailService");
 
+function getRequestMeta(req) {
+  const xff = req.headers["x-forwarded-for"];
+  const clientIp = typeof xff === "string" && xff.length
+    ? xff.split(",")[0].trim()
+    : req.ip || req.socket?.remoteAddress || null;
+
+  return {
+    ip: clientIp,
+    user_agent: req.get("user-agent") || null,
+    origin: req.get("origin") || null,
+    referer: req.get("referer") || null,
+  };
+}
+
 exports.submitContact = async (req, res, next) => {
   try {
     const { name, email, phone, message } = req.body;
@@ -28,6 +42,8 @@ exports.submitContact = async (req, res, next) => {
       email: validator.normalizeEmail(email.trim()),
       phone: phone ? validator.escape(phone.trim()) : null,
       message: validator.escape(message.trim()),
+      source: "contact_form",
+      request_meta: getRequestMeta(req),
     };
 
     // ---------- Save to Firestore ----------
@@ -37,13 +53,29 @@ exports.submitContact = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: "Contact saved successfully",
-      data: { id: saved.id, created_at: saved.created_at },
+      data: { id: saved.id, created_at: saved.created_at, email_status: "pending" },
     });
 
     // ---------- Send email asynchronously (non-blocking) ----------
-    sendContactEmail(sanitized).catch((err) => {
-      console.error("[ASYNC-EMAIL] Failed:", err.message);
-    });
+    sendContactEmail(sanitized)
+      .then(async (result) => {
+        const status = result?.success ? "sent" : "failed";
+        await Contact.updateEmailStatus(saved.id, status, result?.error || null, {
+          messageId: result?.messageId || null,
+          provider: "resend",
+          attempts: result?.attempts,
+        });
+      })
+      .catch(async (err) => {
+        console.error("[ASYNC-EMAIL] Failed:", err.message);
+        try {
+          await Contact.updateEmailStatus(saved.id, "failed", err.message, {
+            provider: "resend",
+          });
+        } catch (dbErr) {
+          console.error("[ASYNC-EMAIL] Failed to update contact email status:", dbErr.message);
+        }
+      });
   } catch (err) {
     next(err);
   }
@@ -103,6 +135,8 @@ exports.submitBookCall = async (req, res, next) => {
       budget: validator.escape(budget.trim()),
       timeline: validator.escape(timeline.trim()),
       description: validator.escape(description.trim()),
+      source: "book_call_form",
+      request_meta: getRequestMeta(req),
     };
 
     // ---------- Save to Firestore ----------
@@ -112,13 +146,29 @@ exports.submitBookCall = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: "Book call request saved successfully",
-      data: { id: saved.id, created_at: saved.created_at },
+      data: { id: saved.id, created_at: saved.created_at, email_status: "pending" },
     });
 
     // ---------- Send email asynchronously (non-blocking) ----------
-    sendBookCallEmail(sanitized).catch((err) => {
-      console.error("[ASYNC-BOOK-CALL-EMAIL] Failed:", err.message);
-    });
+    sendBookCallEmail(sanitized)
+      .then(async (result) => {
+        const status = result?.success ? "sent" : "failed";
+        await BookCall.updateEmailStatus(saved.id, status, result?.error || null, {
+          messageId: result?.messageId || null,
+          provider: "resend",
+          attempts: result?.attempts,
+        });
+      })
+      .catch(async (err) => {
+        console.error("[ASYNC-BOOK-CALL-EMAIL] Failed:", err.message);
+        try {
+          await BookCall.updateEmailStatus(saved.id, "failed", err.message, {
+            provider: "resend",
+          });
+        } catch (dbErr) {
+          console.error("[ASYNC-BOOK-CALL-EMAIL] Failed to update email status:", dbErr.message);
+        }
+      });
   } catch (err) {
     next(err);
   }

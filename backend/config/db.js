@@ -1,14 +1,19 @@
 const admin = require("firebase-admin");
 const fs = require("fs");
 const path = require("path");
+const { Firestore } = require("@google-cloud/firestore");
 
 function initFirestore() {
-  if (admin.apps.length) return admin.firestore();
+  let credentialSource = "application-default";
+  let configuredProjectId = null;
+  let serviceAccount = null;
+  const preferRest = String(process.env.FIRESTORE_PREFER_REST || "true").toLowerCase() !== "false";
 
   // 1) JSON string from env (production / Render)
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    credentialSource = "env:FIREBASE_SERVICE_ACCOUNT_KEY";
+    configuredProjectId = serviceAccount.project_id || null;
   }
   // 2) File path (local dev)
   else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
@@ -21,17 +26,46 @@ function initFirestore() {
       throw new Error(`Firebase service account file not found at: ${absolutePath}`);
     }
 
-    const serviceAccount = require(absolutePath);
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    serviceAccount = require(absolutePath);
+    credentialSource = `file:${absolutePath}`;
+    configuredProjectId = serviceAccount.project_id || null;
   }
-  // 3) Default credentials (CI, Cloud Run, etc.)
-  else {
+
+  // Prefer explicit Firestore client in local/dev to avoid gRPC transport edge-cases.
+  if (serviceAccount) {
+    const db = new Firestore({
+      projectId: configuredProjectId || undefined,
+      credentials: {
+        client_email: serviceAccount.client_email,
+        private_key: serviceAccount.private_key,
+      },
+      preferRest,
+      ignoreUndefinedProperties: true,
+    });
+
+    console.log(
+      `[DB] Firestore initialized (project=${configuredProjectId || "unknown"}, source=${credentialSource}, preferRest=${preferRest}, client=google-cloud-firestore)`
+    );
+    return db;
+  }
+
+  // 3) Fallback to Admin SDK default credentials (CI, Cloud Run, etc.)
+  if (!admin.apps.length) {
     admin.initializeApp({ credential: admin.credential.applicationDefault() });
   }
 
   const db = admin.firestore();
   db.settings({ ignoreUndefinedProperties: true });
-  console.log("[DB] Firestore initialized");
+  console.log(
+    `[DB] Firestore initialized (project=${configuredProjectId || "unknown"}, source=${credentialSource}, client=firebase-admin)`
+  );
+
+  if (!configuredProjectId) {
+    console.warn(
+      "[DB] Project ID not resolved from credentials. Ensure Firebase service account credentials are configured correctly."
+    );
+  }
+
   return db;
 }
 

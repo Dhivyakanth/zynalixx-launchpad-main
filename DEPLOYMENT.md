@@ -1,78 +1,73 @@
-# Deployment Guide
+# Deployment Guide (Render)
 
-## Backend — Render
+This project can be deployed fully on Render using the root `render.yaml` file.
 
-### 1. Prepare repository
-Push the `backend/` folder to a separate Git repo (or use a monorepo with root directory set to `backend`).
+## Option A: One-click Blueprint (Recommended)
 
-### 2. Create Render Web Service
-1. Go to [render.com](https://render.com) → **New → Web Service**
-2. Connect your Git repo
-3. Settings:
-   - **Runtime:** Node
-   - **Build Command:** `npm install`
-   - **Start Command:** `npm start`
-   - **Health Check Path:** `/health`
+### 1. Push your repository
+Commit and push your current project to GitHub/GitLab.
 
-### 3. Environment Variables (Render Dashboard → Environment)
+### 2. Create Blueprint on Render
+1. Go to [render.com](https://render.com) → **New +** → **Blueprint**
+2. Connect your repository
+3. Render will detect `render.yaml` and create:
+   - `zynalixx-backend` (Node Web Service)
+   - `zynalixx-frontend` (Static Site)
+
+### 3. Set environment variables
+In Render dashboard, set the following values for `zynalixx-backend`:
+
 | Variable | Value |
 |---|---|
-| `PORT` | `5000` |
-| `ALLOWED_ORIGINS` | `https://your-project.web.app,https://your-project.firebaseapp.com` |
-| `FIREBASE_SERVICE_ACCOUNT_KEY` | Paste the **entire JSON** content of your Firebase service account key |
+| `ALLOWED_ORIGINS` | `https://your-frontend.onrender.com` |
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | Paste the full Firebase service-account JSON string |
 | `RESEND_API_KEY` | Your Resend API key (`re_...`) |
 | `EMAIL_FROM` | `Zynalixx <contact@yourdomain.com>` |
 | `EMAIL_TO` | `zynalixx@gmail.com` |
 
-> ⚠️ **Never commit** `serviceAccountKey.json` to Git. Use the `FIREBASE_SERVICE_ACCOUNT_KEY` env var on Render.
+Set this variable for `zynalixx-frontend`:
 
-### 4. Deploy
-Render auto-deploys on push. Verify: `https://your-backend.onrender.com/health`
+| Variable | Value |
+|---|---|
+| `VITE_API_URL` | `https://your-backend.onrender.com` |
 
----
+### 4. Redeploy after env vars
+After saving env vars, redeploy both services from Render dashboard.
 
-## Frontend — Firebase Hosting
+### 5. Verify
+- Backend health: `https://your-backend.onrender.com/health`
+- Frontend opens and form submissions succeed
 
-### 1. Install Firebase CLI
-```bash
-npm install -g firebase-tools
-firebase login
-```
+## Option B: Manual Services
 
-### 2. Initialize Firebase Hosting
-```bash
-firebase init hosting
-# Select your project
-# Public directory: dist
-# Single-page app: Yes
-# Auto builds: No
-```
+If you do not want Blueprint, create two services manually:
 
-### 3. Set environment variable
-Create `.env.production` in project root:
-```
-VITE_API_URL=https://your-backend.onrender.com
-```
+1. Backend Web Service
+   - Root Directory: `backend`
+   - Build Command: `npm install`
+   - Start Command: `npm start`
+   - Health Check Path: `/health`
 
-### 4. Build & Deploy
-```bash
-npm run build
-firebase deploy --only hosting
-```
+2. Frontend Static Site
+   - Root Directory: project root
+   - Build Command: `npm install && npm run build`
+   - Publish Directory: `dist`
+   - Rewrite all routes to `/index.html` for SPA behavior
+   - Set `VITE_API_URL` to your backend Render URL
 
-### 5. Update CORS
-Add your Firebase Hosting URL to `ALLOWED_ORIGINS` on Render.
+## Important Security Notes
 
----
+- Never commit service-account JSON files to git.
+- Use only Render environment variables for secrets.
+- Keep `ALLOWED_ORIGINS` limited to your frontend domain(s).
 
 ## Test Checklist
 
 - [ ] `GET /health` returns `{ status: "ok" }`
-- [ ] `POST /api/contacts` with valid data → 201 + Firestore document created
-- [ ] `POST /api/contacts` with missing fields → 400 + error messages
-- [ ] Email received at `EMAIL_TO` address after submission
+- [ ] `POST /api/contacts` with valid data returns 201 and creates Firestore document
+- [ ] `POST /api/book-calls` with valid data returns 201 and creates Firestore document
+- [ ] Email is received at `EMAIL_TO`
 - [ ] If email fails, API still returns 201 (non-blocking)
-- [ ] Rate limiting works (6th request within 15 min → 429)
-- [ ] CORS blocks requests from unauthorized origins
-- [ ] Frontend form shows success/error messages correctly
-- [ ] No secrets in Git history
+- [ ] Rate limit triggers on repeated requests
+- [ ] CORS blocks unauthorized origins
+- [ ] Frontend form shows success/error state correctly

@@ -4,6 +4,98 @@ const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null;
 
+const MIN_SEND_INTERVAL_MS = Number(process.env.RESEND_MIN_SEND_INTERVAL_MS || 650);
+const RETRY_ATTEMPTS = Number(process.env.RESEND_RETRY_ATTEMPTS || 3);
+const RETRY_BASE_DELAY_MS = Number(process.env.RESEND_RETRY_BASE_DELAY_MS || 500);
+
+let queue = [];
+let isQueueProcessing = false;
+let lastSendAt = 0;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryResendError(error) {
+  return Number(error?.statusCode) === 429;
+}
+
+function computeRetryDelayMs(error, attempt) {
+  const retryAfterSeconds = Number(error?.retryAfter || 0);
+  if (retryAfterSeconds > 0) return retryAfterSeconds * 1000;
+
+  const backoff = RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * 250);
+  return backoff + jitter;
+}
+
+async function sendWithRetry(payload, label) {
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const { data, error } = await resend.emails.send(payload);
+
+      if (!error) {
+        console.log(`[EMAIL] ${label} sent successfully:`, data?.id);
+        return { success: true, messageId: data?.id, attempts: attempt };
+      }
+
+      if (!shouldRetryResendError(error) || attempt >= RETRY_ATTEMPTS) {
+        console.error(`[EMAIL] ${label} failed:`, error);
+        return {
+          success: false,
+          error: error.message || "Failed to send email",
+          attempts: attempt,
+        };
+      }
+
+      const delay = computeRetryDelayMs(error, attempt);
+      console.warn(
+        `[EMAIL] ${label} rate-limited. Retrying in ${delay}ms (attempt ${attempt}/${RETRY_ATTEMPTS})`
+      );
+      await sleep(delay);
+    } catch (err) {
+      const isLastAttempt = attempt >= RETRY_ATTEMPTS;
+      if (isLastAttempt) {
+        console.error(`[EMAIL] ${label} exception:`, err.message);
+        return { success: false, error: err.message, attempts: attempt };
+      }
+
+      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempt - 1));
+      await sleep(delay);
+    }
+  }
+
+  return { success: false, error: "Failed to send email after retries", attempts: RETRY_ATTEMPTS };
+}
+
+function enqueueEmail(task) {
+  return new Promise((resolve) => {
+    queue.push({ task, resolve });
+    processQueue().catch((err) => {
+      console.error("[EMAIL] Queue processing error:", err.message);
+    });
+  });
+}
+
+async function processQueue() {
+  if (isQueueProcessing) return;
+  isQueueProcessing = true;
+
+  while (queue.length > 0) {
+    const elapsed = Date.now() - lastSendAt;
+    if (elapsed < MIN_SEND_INTERVAL_MS) {
+      await sleep(MIN_SEND_INTERVAL_MS - elapsed);
+    }
+
+    const { task, resolve } = queue.shift();
+    const result = await task();
+    lastSendAt = Date.now();
+    resolve(result);
+  }
+
+  isQueueProcessing = false;
+}
+
 /**
  * Send contact-form notification email.
  * Returns { success, messageId?, error? }
@@ -24,8 +116,9 @@ async function sendContactEmail({ name, email, phone, message }) {
     return { success: false, error: "No recipients configured" };
   }
 
-  try {
-    const { data, error } = await resend.emails.send({
+  return enqueueEmail(() =>
+    sendWithRetry(
+      {
       from: process.env.EMAIL_FROM || "Zynalixx Contact <onboarding@resend.dev>",
       to: recipients,
       replyTo: email,
@@ -41,19 +134,10 @@ async function sendContactEmail({ name, email, phone, message }) {
         <hr />
         <p style="color:#888;font-size:12px">Sent at ${new Date().toISOString()}</p>
       `,
-    });
-
-    if (error) {
-      console.error("[EMAIL] Resend error:", error);
-      return { success: false, error: error.message };
-    }
-
-    console.log("[EMAIL] Sent successfully:", data?.id);
-    return { success: true, messageId: data?.id };
-  } catch (err) {
-    console.error("[EMAIL] Exception:", err.message);
-    return { success: false, error: err.message };
-  }
+      },
+      "Contact email"
+    )
+  );
 }
 
 /**
@@ -85,8 +169,9 @@ async function sendBookCallEmail({
     return { success: false, error: "No recipients configured" };
   }
 
-  try {
-    const { data, error } = await resend.emails.send({
+  return enqueueEmail(() =>
+    sendWithRetry(
+      {
       from: process.env.EMAIL_FROM || "Zynalixx Contact <onboarding@resend.dev>",
       to: recipients,
       replyTo: email,
@@ -106,19 +191,10 @@ async function sendBookCallEmail({
         <hr />
         <p style="color:#888;font-size:12px">Sent at ${new Date().toISOString()}</p>
       `,
-    });
-
-    if (error) {
-      console.error("[EMAIL] Resend error:", error);
-      return { success: false, error: error.message };
-    }
-
-    console.log("[EMAIL] Book call email sent:", data?.id);
-    return { success: true, messageId: data?.id };
-  } catch (err) {
-    console.error("[EMAIL] Book call exception:", err.message);
-    return { success: false, error: err.message };
-  }
+      },
+      "Book call email"
+    )
+  );
 }
 
 function escapeHtml(str) {

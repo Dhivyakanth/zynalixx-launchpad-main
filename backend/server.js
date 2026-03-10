@@ -17,6 +17,28 @@ function corsError(origin) {
   return err;
 }
 
+function mapOperationalError(err) {
+  const message = String(err?.message || "");
+
+  if (message.includes("5 NOT_FOUND")) {
+    return {
+      status: 503,
+      message:
+        "Firestore database not found. Enable Firestore in your Firebase project and verify service-account project_id.",
+    };
+  }
+
+  if (message.includes("PERMISSION_DENIED") || err?.code === 7) {
+    return {
+      status: 503,
+      message:
+        "Firestore permission denied. Verify service-account roles for Cloud Firestore.",
+    };
+  }
+
+  return null;
+}
+
 // ------- Security middleware -------
 app.use(helmet());
 
@@ -66,10 +88,21 @@ app.use((_req, res) => {
 // ------- Centralized error handler -------
 app.use((err, _req, res, _next) => {
   console.error("[ERROR]", err.message);
-  const status = err.status || 500;
+  if (err?.stack) console.error(err.stack);
+
+  const mapped = mapOperationalError(err);
+  const status = mapped?.status || err.status || 500;
+  const safeMessage =
+    mapped?.message ||
+    (status === 500
+      ? process.env.NODE_ENV === "production"
+        ? "Internal server error"
+        : err.message || "Internal server error"
+      : err.message);
+
   res.status(status).json({
     success: false,
-    message: status === 500 ? "Internal server error" : err.message,
+    message: safeMessage,
   });
 });
 
